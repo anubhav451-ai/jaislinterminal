@@ -1,0 +1,12 @@
+# Netlify: static site (client) + one function for /api/* (Yahoo Finance, 15 min delayed, no server needed).
+[build]
+  command = "npm install --prefix client --include=dev && npm run build --prefix client"
+  publish = "client/dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+  VITE_POLL = "1"   # no WebSocket on Netlify: the app polls /api/quotes instead
+
+[functions]
+  node_bundler = "esbuild"

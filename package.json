@@ -1,0 +1,20 @@
+{
+  "name": "nifty50-terminal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TradingView-style live Nifty 50 charting terminal (React + lightweight-charts + Node)",
+  "scripts": {
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "build": "npm run build --prefix client",
+    "build:render": "npm install --prefix server --omit=dev && npm install --prefix client --include=dev && npm run build --prefix client",
+    "start": "node server/index.js",
+    "start:local": "npm run build && node server/index.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.17"
+  }
+}
