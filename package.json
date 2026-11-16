@@ -6,7 +6,7 @@
   "scripts": {
     "install:all": "npm install && npm install --prefix server && npm install --prefix client",
     "dev": "concurrently -n server,client -c blue,green \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
-    "build": "npm run build --prefix client",
+    "build": "node scripts/check-structure.mjs && npm install --prefix client --include=dev && npm run build --prefix client",
     "build:render": "npm install --prefix server --omit=dev && npm install --prefix client --include=dev && npm run build --prefix client",
     "start": "node server/index.js",
     "start:local": "npm run build && node server/index.js"

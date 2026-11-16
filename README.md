@@ -112,3 +112,28 @@ Strategy tab -> list of strategies. Tap one -> only its stocks (setups on top). 
 1. `.env` must contain `APP_PASSWORD=...` (anything strong), then `npm run build --prefix client`.
 2. `bash start-public.sh` starts the server and a free Cloudflare quick tunnel and prints `https://....trycloudflare.com`.
 3. The link changes every time. Keep the window open. The Node server (and your Angel One login) stay on your own device.
+
+## Deploy on Cloudflare
+
+The repository root must contain `client/`, `server/`, `worker/`, `functions/`, `wrangler.jsonc` and `package.json`.
+
+**Workers Builds (the default "Create application" flow, deploy command `npx wrangler deploy`):**
+- Root directory: empty
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy`
+- The `name` in `wrangler.jsonc` must be the same as the Worker name in the Cloudflare dashboard (change that one line if yours differs).
+- `/api/*` is answered by `worker/index.js` (Yahoo Finance, 15 min delayed).
+
+**Cloudflare Pages (Git import):**
+- Build command: `npm run build`, Build output directory: `client/dist`, Root directory: empty
+- `/api/*` is answered by `functions/api/[[path]].js`.
+
+No environment variable is needed. The app detects `*.workers.dev`, `*.pages.dev` and `*.netlify.app` and polls prices there (no WebSocket).
+
+## Accounts (Google sign-in) and cloud save
+
+- Every user signs in / registers with **Continue with Google** (Firebase Authentication). Data is saved per account in Firestore (`users/{uid}/kv/...`).
+- One-time Firebase setup:
+  1. Authentication, Sign-in method: **Google** switched on.
+  2. Authentication, Settings, **Authorized domains**: add your site address (the `*.netlify.app` / `*.pages.dev` / custom domain).
+  3. Firestore Database, **Rules**: paste the content of `firestore.rules` and Publish.

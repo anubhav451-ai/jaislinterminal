@@ -1,0 +1,12 @@
+{
+  // Cloudflare (Workers with static assets). The name must be the same as the Worker name in the Cloudflare dashboard.
+  "name": "jaislin-terminal",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./client/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/ws"]
+  }
+}
