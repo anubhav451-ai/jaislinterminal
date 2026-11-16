@@ -137,3 +137,10 @@ No environment variable is needed. The app detects `*.workers.dev`, `*.pages.dev
   1. Authentication, Sign-in method: **Google** switched on.
   2. Authentication, Settings, **Authorized domains**: add your site address (the `*.netlify.app` / `*.pages.dev` / custom domain).
   3. Firestore Database, **Rules**: paste the content of `firestore.rules` and Publish.
+
+## v35 changes
+- Bottom navigation is now a left sidebar on PC / laptop / landscape (collapsible, Alt+1..5 shortcuts); phones in portrait keep the bottom bar. New **Accounts** tab.
+- "Demo trading" is now **Paper trading**: first open an account (name, starting balance, charges), several accounts supported.
+- **Back-test** and **Paper trading** buttons added in the chart top bar (next to Strategy / Volume) and on the Dashboard.
+- Strategy label on the chart (e.g. "Bollinger Band Close · 95 setups") → 3-dot menu now has **Hide strategy / Show strategy on chart**.
+- Fixed: the "Run back-test" button was hidden behind the navigation bar (pages now sit above it, with bottom padding and a sticky button).

@@ -4,6 +4,7 @@ import { allStrategies, strategyById } from '../lib/strategy.js';
 import { getCandles } from '../lib/useScanner.js';
 import { cfgLabel, dateStr } from '../lib/backtest.js';
 import { nowIST } from '../lib/delay.js';
+import { OpenAccountForm } from './AccountsPage.jsx';
 import { closePosition, daysAgo, equityOf, investedOf, money, newAccount, openPosition, PERIODS, runPortfolioBacktest, unrealized } from '../lib/paper.js';
 
 const num = (v, d) => (Number.isFinite(Number(v)) && String(v).trim() !== '' ? Number(v) : d);
@@ -60,7 +61,11 @@ function BacktestTab({ symbols, appliedList, paramsOf, cfgOf, preset }) {
   const [res, setRes] = useState(null);
   const [err, setErr] = useState('');
   const cancel = useRef(false);
+  const outRef = useRef(null);
   useEffect(() => () => (cancel.current = true), []);
+  useEffect(() => {
+    if (res && window.innerWidth < 800) outRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [res]);
 
   const def = strategyById(stratId);
   const applied = appliedList.find((a) => a.strategyId === stratId);
@@ -212,7 +217,7 @@ function BacktestTab({ symbols, appliedList, paramsOf, cfgOf, preset }) {
         </button>
       </section>
 
-      <div className="dm-out">
+      <div className="dm-out" ref={outRef}>
         {res && (
           <>
             <section className="card">
@@ -288,7 +293,8 @@ function BacktestTab({ symbols, appliedList, paramsOf, cfgOf, preset }) {
   );
 }
 
-function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals }) {
+function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals, papers, onSelect, onCreate }) {
+  const [adding, setAdding] = useState(false);
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((x) => x + 1), 3000);
@@ -309,6 +315,7 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals })
   const [tp, setTp] = useState('1');
   const [msg, setMsg] = useState('');
   const [newCap, setNewCap] = useState(String(paper.capital));
+  useEffect(() => setNewCap(String(paper.capital)), [paper.id]); // eslint-disable-line
   const nameOf = (s) => symbols.find((x) => x.symbol === s)?.name || '';
 
   const place = () => {
@@ -319,7 +326,7 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals })
     const r = openPosition(paper, { symbol: sym, side, price: px, amount: num(amount, 0), stop: slV > 0 && px ? px * (1 - (dir * slV) / 100) : null, target: tpV > 0 && px ? px * (1 + (dir * tpV) / 100) : null });
     if (r.error) return setMsg(r.error);
     setPaper(r.acc);
-    setMsg(`Demo ${side === 'buy' ? 'BUY' : 'SELL'} placed: ${sym} at ${px.toFixed(2)}.`);
+    setMsg(`Paper ${side === 'buy' ? 'BUY' : 'SELL'} placed: ${sym} at ${px.toFixed(2)}.`);
   };
   const setAuto = (id, patch) =>
     setPaper((acc) => {
@@ -329,11 +336,40 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals })
       return { ...acc, auto: { ...acc.auto, [id]: next } };
     });
 
+  if (adding)
+    return (
+      <div className="dm-grid dm-one">
+        <OpenAccountForm
+          nextNo={papers.accounts.length + 1}
+          onCancel={() => setAdding(false)}
+          onCreate={(v) => {
+            onCreate(v);
+            setAdding(false);
+          }}
+        />
+      </div>
+    );
+
   return (
     <div className="dm-grid">
       <div className="dm-col">
+        <section className="card dm-acc-switch">
+          <label className="cd-f">
+            <span>Paper account</span>
+            <select value={papers.active || ''} onChange={(e) => onSelect(e.target.value)}>
+              {papers.accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} · {money(a.capital)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="btn" onClick={() => setAdding(true)}>
+            <Icon d={ICONS.plus} size={14} /> New account
+          </button>
+        </section>
         <section className="card">
-          <h2>Demo account</h2>
+          <h2>{paper.name}</h2>
           <div className="dm-hero">
             <span className="muted small">Account value</span>
             <b className={tone(total)}>{money(equity)}</b>
@@ -348,12 +384,12 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals })
             <Stat label="Open profit/loss" value={money(openPl)} cls={tone(openPl)} />
             <Stat label="Booked profit/loss" value={money(realized)} cls={tone(realized)} />
           </div>
-          <p className="muted small">Demo money only. Real prices (15 min delayed on Yahoo), no real orders are placed.</p>
+          <p className="muted small">Virtual money only. Real market prices (15 min delayed on Yahoo), no real orders are placed.</p>
         </section>
 
         <section className="card">
-          <h2>Auto demo-trading</h2>
-          <p className="muted small">Switch a strategy on and its new BUY / SELL setups are traded automatically in the demo account with the strategy's stop-loss and target. Keep the app open so prices are watched.</p>
+          <h2>Auto paper-trading</h2>
+          <p className="muted small">Switch a strategy on and its new BUY / SELL setups are traded automatically in the paper account with the strategy's stop-loss and target. Keep the app open so prices are watched.</p>
           {appliedList.length === 0 && <p className="muted small">No strategy is added to any stock yet. Add one from the chart ("+ Strategy").</p>}
           {appliedList.map((a) => {
             const d = strategyById(a.strategyId);
@@ -380,7 +416,7 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals })
         </section>
 
         <section className="card">
-          <h2>Place a demo order</h2>
+          <h2>Place a paper order</h2>
           <div className="dm-fields">
             <label className="cd-f dm-wide">
               <span>Stock</span>
@@ -418,7 +454,7 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals })
           </p>
           {msg && <p className="muted small">{msg}</p>}
           <button className={`btn wide dm-place ${side}`} onClick={place}>
-            Place demo {side === 'buy' ? 'BUY' : 'SELL'}
+            Place paper {side === 'buy' ? 'BUY' : 'SELL'}
           </button>
         </section>
       </div>
@@ -426,7 +462,7 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals })
       <div className="dm-col">
         <section className="card">
           <h2>Open positions ({paper.positions.length})</h2>
-          {paper.positions.length === 0 && <p className="muted small">No open demo positions.</p>}
+          {paper.positions.length === 0 && <p className="muted small">No open paper positions.</p>}
           {paper.positions.map((p) => {
             const px = priceOf(p.symbol);
             const pl = unrealized(p, px);
@@ -478,20 +514,20 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals })
         </section>
 
         <section className="card">
-          <h2>Start again</h2>
+          <h2>Reset this account</h2>
           <div className="dm-fields">
             <label className="cd-f">
-              <span>Demo capital (₹)</span>
+              <span>New starting balance (₹)</span>
               <input type="number" inputMode="decimal" min="1" value={newCap} onChange={(e) => setNewCap(e.target.value)} />
             </label>
           </div>
           <button
             className="btn wide"
             onClick={() => {
-              if (window.confirm('Reset the demo account? All demo positions and history are cleared.')) setPaper((acc) => ({ ...newAccount(num(newCap, 100000)), auto: Object.fromEntries(Object.entries(acc.auto).map(([k, v]) => [k, { ...v, since: nowIST() }])) }));
+              if (window.confirm('Reset this paper account? All its positions and history are cleared.')) setPaper((acc) => ({ ...newAccount(num(newCap, 100000), { name: acc.name, charges: acc.charges }), id: acc.id, createdAt: acc.createdAt, auto: Object.fromEntries(Object.entries(acc.auto).map(([k, v]) => [k, { ...v, since: nowIST() }])) }));
             }}
           >
-            Reset demo account
+            Reset paper account
           </button>
         </section>
       </div>
@@ -499,26 +535,34 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals })
   );
 }
 
-export default function DemoPage({ onClose, symbols, appliedList, paramsOf, cfgOf, paper, setPaper, feed, onTakeSignals, preset }) {
+export default function DemoPage({ onClose, symbols, appliedList, paramsOf, cfgOf, paper, setPaper, feed, onTakeSignals, preset, papers, onSelect, onCreate }) {
   const [tab, setTab] = useState(preset?.tab || 'backtest');
   return (
-    <div className="page demo-page" role="dialog" aria-label="Demo trading and back-test">
+    <div className="page demo-page" role="dialog" aria-label="Paper trading and back-test">
       <header className="page-top">
         <button className="icon-btn" onClick={onClose} aria-label="Back">
           <Icon d={ICONS.back || ICONS.chevL || ICONS.close} size={20} />
         </button>
-        <h1>Demo &amp; Back-test</h1>
+        <h1>Paper Trading &amp; Back-test</h1>
       </header>
       <div className="dm-tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'backtest'} className={tab === 'backtest' ? 'on' : ''} onClick={() => setTab('backtest')}>
           Back-test
         </button>
         <button role="tab" aria-selected={tab === 'demo'} className={tab === 'demo' ? 'on' : ''} onClick={() => setTab('demo')}>
-          Demo trading
+          Paper trading
         </button>
       </div>
       <div className="page-scroll">
-        {tab === 'backtest' ? <BacktestTab symbols={symbols} appliedList={appliedList} paramsOf={paramsOf} cfgOf={cfgOf} preset={preset} /> : <DemoTab symbols={symbols} appliedList={appliedList} paper={paper} setPaper={setPaper} feed={feed} onTakeSignals={onTakeSignals} />}
+        {tab === 'backtest' ? (
+          <BacktestTab symbols={symbols} appliedList={appliedList} paramsOf={paramsOf} cfgOf={cfgOf} preset={preset} />
+        ) : paper ? (
+          <DemoTab symbols={symbols} appliedList={appliedList} paper={paper} setPaper={setPaper} feed={feed} onTakeSignals={onTakeSignals} papers={papers} onSelect={onSelect} onCreate={onCreate} />
+        ) : (
+          <div className="dm-grid dm-one">
+            <OpenAccountForm first nextNo={1} onCreate={onCreate} />
+          </div>
+        )}
       </div>
     </div>
   );

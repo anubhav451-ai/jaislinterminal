@@ -58,8 +58,8 @@ export default function StrategyReport({ def, params, candles, symbol, stockName
         <h1>
           {def.name} · {symbol}
         </h1>
-        <button className="btn" onClick={onOpenDemo} title="Back-test with money and demo trading">
-          Demo / Back-test
+        <button className="btn" onClick={onOpenDemo} title="Back-test with money and paper trading">
+          Paper / Back-test
         </button>
         <button className="btn" onClick={onOpenInputs} title="Strategy inputs, indicators and colours">
           Inputs

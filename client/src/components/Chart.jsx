@@ -106,6 +106,7 @@ export default function Chart({
   strategies,
   onRemoveStrategy,
   onOpenStrategy,
+  onToggleHidden,
   overlay,
   statsOn,
   onToggleStats,
@@ -940,19 +941,20 @@ export default function Chart({
             </div>
           ))}
           {(strategies || []).map((st) => (
-            <div className="lg-row lg-strat" key={st.id}>
+            <div className={`lg-row lg-strat ${st.hidden ? 'is-hidden' : ''}`} key={st.id}>
               {st.action ? (
                 <button className="lg-strat-text" onClick={st.action}>
                   {st.name} {st.note}
                 </button>
               ) : (
                 <button className="lg-strat-text" onClick={() => onOpenStrategy?.(st.id)} title="Tap to change settings and colours">
-                  {st.name} · {st.note}
+                  {st.name} · {st.hidden ? 'hidden' : st.note}
                 </button>
               )}
               <RowMenu
                 label={`${st.name} options`}
                 items={[
+                  { label: st.hidden ? 'Show strategy on chart' : 'Hide strategy', hidden: !onToggleHidden || !!st.action, onClick: () => onToggleHidden?.(st.id) },
                   { label: statsOn?.[st.id] === false ? 'Show strategy data (accuracy)' : 'Remove strategy data panel', onClick: () => onToggleStats?.(st.id) },
                   {
                     label: 'Remove strategy',

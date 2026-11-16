@@ -2,7 +2,7 @@
 // plus a hook that lets lib/cloud.js copy every change to Firestore.
 let ns = '';
 let onChange = null;
-const SYNC_SKIP = new Set(['n50.seen', 'n50.watchw', 'n50.statpos']); // device-only things
+const SYNC_SKIP = new Set(['n50.seen', 'n50.watchw', 'n50.statpos', 'n50.navcol']); // device-only things
 
 export const setNamespace = (uid) => {
   ns = uid ? `u_${uid}:` : '';

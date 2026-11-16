@@ -133,7 +133,7 @@ export async function runPortfolioBacktest({ def, params, cfg, symbols, from, to
 }
 
 // ---------------------------------------------------------------- 2) demo (paper) account
-export const newAccount = (capital = 100000) => ({ capital, cash: capital, positions: [], closed: [], auto: {}, processed: [], charges: 0, createdAt: Date.now() });
+export const newAccount = (capital = 100000, { name = 'Paper account', charges = 0 } = {}) => ({ id: `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name, capital, cash: capital, positions: [], closed: [], auto: {}, processed: [], charges, createdAt: Date.now() });
 
 const dirOf = (side) => (side === 'buy' ? 1 : -1);
 export const unrealized = (p, price) => (price == null ? 0 : dirOf(p.side) * (price - p.entry) * p.qty);

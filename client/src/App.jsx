@@ -29,6 +29,7 @@ import StrategySheet from './components/StrategySheet.jsx';
 import StrategySettings from './components/StrategySettings.jsx';
 import StrategyStats from './components/StrategyStats.jsx';
 import StrategyReport from './components/StrategyReport.jsx';
+import AccountsPage from './components/AccountsPage.jsx';
 
 const load = (key, fallback) => {
   try {
@@ -146,6 +147,8 @@ export default function App() {
   const [tool, setTool] = useState('cursor');
   const [hideDrawings, setHideDrawings] = useState(false);
   const [watchOpen, setWatchOpen] = useState(false);
+  const [navCol, setNavCol] = useState(() => !!load('n50.navcol', false)); // PC sidebar: collapsed to icons
+  useEffect(() => save('n50.navcol', navCol), [navCol]);
   // width of the stock list next to the chart; drag the divider (like TradingView). double-click = back to the default
   const [watchW, setWatchW] = useState(() => {
     const v = Number(load('n50.watchw', 290));
@@ -342,6 +345,20 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const ids = ['dashboard', 'chart', 'strategy', 'accounts', 'settings'];
+    const onKey = (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      const i = Number(e.key) - 1;
+      if (i >= 0 && i < ids.length) {
+        e.preventDefault();
+        goTab(ids[i]);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [goTab]);
+
   const openChart = useCallback((sym) => {
     if (chartCtxRef.current) {
       setInterval_(load('n50.interval', '5m')); // back to the timeframe the user normally uses
@@ -444,6 +461,9 @@ export default function App() {
     setStratDefaults((m) => ({ ...m, [id]: params }));
     setApplied((l) => l.map((a) => (a.strategyId === id ? { ...a, params } : a))); // re-scans automatically
   }, []);
+  const [stratHidden, setStratHidden] = useState(() => load('n50.strathidden', {})); // strategy id -> hidden on the chart (still scanning)
+  useEffect(() => save('n50.strathidden', stratHidden), [stratHidden]);
+  const toggleHidden = useCallback((id) => setStratHidden((m) => ({ ...m, [id]: !m[id] })), []);
   const [stratSheet, setStratSheet] = useState(false);
   const [statsOn, setStatsOn] = useState(() => load('n50.statson', {})); // strategy id -> show the accuracy panel on the chart
   useEffect(() => save('n50.statson', statsOn), [statsOn]);
@@ -482,35 +502,95 @@ export default function App() {
   }, [customList]);
   const stratHere = useMemo(() => liveApplied.filter((a) => a.symbols.includes(symbol)), [liveApplied, symbol]);
   const stratMatch = useMemo(() => stratHere.filter((a) => a.params.interval === interval), [stratHere, interval]);
+  const stratShown = useMemo(() => stratMatch.filter((a) => !stratHidden[a.strategyId]), [stratMatch, stratHidden]);
   const stratOther = stratHere.find((a) => a.params.interval !== interval && !stratMatch.length);
   const markers = useMemo(() => {
-    if (!candles.length || !stratMatch.length) return [];
+    if (!candles.length || !stratShown.length) return [];
     const now = nowIST();
-    return stratMatch.flatMap((a) => {
+    return stratShown.flatMap((a) => {
       try {
         return markersFor(candles, strategyById(a.strategyId), a.params, now, settings.upColor, settings.downColor);
       } catch {
         return [];
       }
     });
-  }, [candles, stratMatch, settings.upColor, settings.downColor, customList, pyReady]); // eslint-disable-line
-  // ---------- demo (paper) trading account: saved with the user's other data ----------
-  const [paper, setPaper] = useState(() => {
-    const a = load('n50.paper', null);
-    return a && typeof a.cash === 'number' && Array.isArray(a.positions) ? { ...newAccount(a.capital || 100000), ...a } : newAccount();
+  }, [candles, stratShown, settings.upColor, settings.downColor, customList, pyReady]); // eslint-disable-line
+  // ---------- paper trading accounts: several accounts, one is active. Saved with the user's other data ----------
+  const [papers, setPapers] = useState(() => {
+    const p = load('n50.papers', null);
+    if (p && Array.isArray(p.accounts)) {
+      const accounts = p.accounts.filter((a) => a && typeof a.cash === 'number' && Array.isArray(a.positions)).map((a) => ({ ...newAccount(a.capital || 100000), ...a }));
+      return { accounts, active: accounts.some((a) => a.id === p.active) ? p.active : accounts[0]?.id || null };
+    }
+    // older versions had ONE demo account: keep it only if it was really used
+    const old = load('n50.paper', null);
+    if (old && typeof old.cash === 'number' && Array.isArray(old.positions) && (old.positions.length || (old.closed || []).length || old.cash !== old.capital)) {
+      const a = { ...newAccount(old.capital || 100000, { name: 'Paper account 1' }), ...old };
+      return { accounts: [a], active: a.id };
+    }
+    return { accounts: [], active: null };
   });
-  useEffect(() => save('n50.paper', paper), [paper]);
+  useEffect(() => save('n50.papers', papers), [papers]);
+  const paper = papers.accounts.find((a) => a.id === papers.active) || null;
+  // works on the ACTIVE account: setPaper(acc => newAcc) or setPaper(newAcc)
+  const setPaper = useCallback(
+    (upd) =>
+      setPapers((P) => {
+        const cur = P.accounts.find((a) => a.id === P.active);
+        if (!cur) return P;
+        const next = typeof upd === 'function' ? upd(cur) : upd;
+        if (next === cur) return P;
+        return { ...P, accounts: P.accounts.map((a) => (a.id === cur.id ? { ...next, id: cur.id, name: next.name || cur.name } : a)) };
+      }),
+    []
+  );
+  const mapPapers = useCallback(
+    (fn) =>
+      setPapers((P) => {
+        let changed = false;
+        const accounts = P.accounts.map((a) => {
+          const n = fn(a);
+          if (n !== a) changed = true;
+          return n;
+        });
+        return changed ? { ...P, accounts } : P;
+      }),
+    []
+  );
+  const createPaper = useCallback(
+    ({ name, capital, charges }) => {
+      const a = newAccount(capital, { name, charges });
+      setPapers((P) => ({ accounts: [...P.accounts, a], active: a.id }));
+      pushToast({ kind: 'ok', title: 'Paper account opened', text: `${name} with ₹${Math.round(capital).toLocaleString('en-IN')}` });
+    },
+    [pushToast]
+  );
+  const selectPaper = useCallback((id) => setPapers((P) => (P.accounts.some((a) => a.id === id) ? { ...P, active: id } : P)), []);
+  const deletePaper = useCallback((id) => setPapers((P) => { const accounts = P.accounts.filter((a) => a.id !== id); return { accounts, active: P.active === id ? accounts[0]?.id || null : P.active }; }), []);
+  const renamePaper = useCallback((id, name) => setPapers((P) => ({ ...P, accounts: P.accounts.map((a) => (a.id === id ? { ...a, name } : a)) })), []);
+  const resetPaper = useCallback(
+    (id, capital) =>
+      setPapers((P) => ({
+        ...P,
+        accounts: P.accounts.map((a) =>
+          a.id === id ? { ...newAccount(capital, { name: a.name, charges: a.charges }), id: a.id, createdAt: a.createdAt, auto: Object.fromEntries(Object.entries(a.auto || {}).map(([k, v]) => [k, { ...v, since: nowIST() }])) } : a
+        ),
+      })),
+    []
+  );
   const cfgOfRef = useRef(cfgOf);
   cfgOfRef.current = cfgOf;
   const priceOf = useCallback((s) => feed.quotes[s]?.p ?? null, [feed]);
+  // every paper account follows its own auto-trading switches
   useEffect(() => {
-    setPaper((acc) => applySignals(acc, scanner.signals, { cfgOf: (id) => cfgOfRef.current(id), priceOf }));
-  }, [scanner.signals, priceOf]);
+    mapPapers((acc) => applySignals(acc, scanner.signals, { cfgOf: (id) => cfgOfRef.current(id), priceOf }));
+  }, [scanner.signals, priceOf, mapPapers]);
   useEffect(() => {
-    const t = setInterval(() => setPaper((acc) => (acc.positions.length ? checkExits(acc, priceOf) : acc)), 5000);
+    const t = setInterval(() => mapPapers((acc) => (acc.positions.length ? checkExits(acc, priceOf) : acc)), 5000);
     return () => clearInterval(t);
-  }, [priceOf]);
-  const takeSignals = useCallback(() => setPaper((acc) => applySignals(acc, scanner.signals, { cfgOf: (id) => cfgOfRef.current(id), priceOf, includeOld: true })), [scanner.signals, priceOf]);
+  }, [priceOf, mapPapers]);
+  const takeSignals = useCallback(() => setPaper((acc) => applySignals(acc, scanner.signals, { cfgOf: (id) => cfgOfRef.current(id), priceOf, includeOld: true })), [scanner.signals, priceOf, setPaper]);
+  const openPaper = useCallback((tab) => { setDemoPreset({ symbol, tab }); setDemoOpen(true); }, [symbol]); // eslint-disable-line
   const [demoOpen, setDemoOpen] = useState(false);
   const [demoPreset, setDemoPreset] = useState(null);
   const paramsOf = useCallback(
@@ -524,11 +604,11 @@ export default function App() {
 
   // Long / Short position boxes (entry, stop-loss, target) for the strategies that have "Show position boxes" ticked
   const positions = useMemo(() => {
-    if (!candles.length || !stratMatch.length) return [];
+    if (!candles.length || !stratShown.length) return [];
     const now = nowIST();
     const lastT = candles[candles.length - 1].time;
     const out = [];
-    for (const a of stratMatch) {
+    for (const a of stratShown) {
       const cfg = cfgOf(a.strategyId);
       const def = strategyById(a.strategyId);
       if (!cfg.pos || !def) continue;
@@ -539,10 +619,10 @@ export default function App() {
       } catch {}
     }
     return out;
-  }, [candles, stratMatch, statCfg, customList, pyReady]); // eslint-disable-line
+  }, [candles, stratShown, statCfg, customList, pyReady]); // eslint-disable-line
   const chartIndicators = useMemo(
-    () => [...indicators, ...stratMatch.flatMap((a) => indicatorsFor(strategyById(a.strategyId), a.params).map((i) => ({ ...i, id: `${i.id}-${a.strategyId}` })))],
-    [indicators, stratMatch, customList, pyReady] // eslint-disable-line
+    () => [...indicators, ...stratShown.flatMap((a) => indicatorsFor(strategyById(a.strategyId), a.params).map((i) => ({ ...i, id: `${i.id}-${a.strategyId}` })))],
+    [indicators, stratShown, customList, pyReady] // eslint-disable-line
   );
 
   const closeChart = (sym) => {
@@ -591,7 +671,8 @@ export default function App() {
   const nameOf = (s) => symbols.find((x) => x.symbol === s)?.name || s;
 
   return (
-    <div className="app">
+    <div className={`app ${navCol ? 'nav-collapsed' : ''}`}>
+      <div className="app-main">
       {health?.connected === false && !bannerOff && (
         <div className="conn-banner info" role="status">
           <span className="cb-text">
@@ -623,7 +704,7 @@ export default function App() {
         </div>
       )}
       <section className={`screen ${tab === 'dashboard' ? '' : 'hidden'}`} aria-label="Dashboard">
-        <Dashboard symbols={symbols} feed={feed} status={status} health={health} signals={scanner.signals} history={scanner.history} appliedList={liveApplied} hasStrategy={liveApplied.length > 0} watch={watch} onToggleWatch={toggleWatch} onOpen={openFromDashboard} onOpenSetup={openSetup} onOpenDemo={() => { setDemoPreset({ symbol }); setDemoOpen(true); }} />
+        <Dashboard symbols={symbols} feed={feed} status={status} health={health} signals={scanner.signals} history={scanner.history} appliedList={liveApplied} hasStrategy={liveApplied.length > 0} watch={watch} onToggleWatch={toggleWatch} onOpen={openFromDashboard} onOpenSetup={openSetup} onOpenDemo={(t) => openPaper(t || 'backtest')} />
       </section>
 
       {chartVisited && (
@@ -669,6 +750,13 @@ export default function App() {
             </button>
             <button className={`btn ${settings.showVolume ? 'on' : ''}`} onClick={() => patchSettings({ showVolume: !settings.showVolume })}>
               Volume
+            </button>
+            <span className="sep" />
+            <button className="btn" onClick={() => openPaper('backtest')} title="Back-test a strategy with money">
+              Back-test
+            </button>
+            <button className="btn" onClick={() => openPaper('demo')} title="Practise with a paper (virtual money) account">
+              Paper trading
             </button>
           </header>
 
@@ -733,17 +821,18 @@ export default function App() {
                 chartType={chartType}
                 indicators={chartIndicators}
                 strategies={[
-                  ...stratMatch.map((a) => ({ id: a.strategyId, name: strategyById(a.strategyId).name, note: `${markers.length} setup${markers.length === 1 ? '' : 's'}` })),
+                  ...stratMatch.map((a) => ({ id: a.strategyId, name: strategyById(a.strategyId).name, hidden: !!stratHidden[a.strategyId], note: `${markers.length} setup${markers.length === 1 ? '' : 's'}` })),
                   ...(stratOther && !stratMatch.length
                     ? [{ id: stratOther.strategyId, name: strategyById(stratOther.strategyId).name, note: `· set for ${INTERVALS.find((i) => i.id === stratOther.params.interval)?.label} – tap to switch`, action: () => setInterval_(stratOther.params.interval) }]
                     : []),
                 ]}
                 onRemoveStrategy={(id) => removeStrategyFromSymbol(id, symbol)}
                 onOpenStrategy={setChartStratId}
+                onToggleHidden={toggleHidden}
                 statsOn={statsOn}
                 onToggleStats={toggleStats}
                 overlay={
-                  stratMatch.length ? (
+                  stratShown.length ? (
                     <div className="stats-layer">
                       {(() => {
                         const panel = (a) => (
@@ -760,8 +849,8 @@ export default function App() {
                             onClose={() => toggleStats(a.strategyId)}
                           />
                         );
-                        const shown = stratMatch.filter((a) => statsOn[a.strategyId] !== false);
-                        const hidden = stratMatch.filter((a) => statsOn[a.strategyId] === false);
+                        const shown = stratShown.filter((a) => statsOn[a.strategyId] !== false);
+                        const hidden = stratShown.filter((a) => statsOn[a.strategyId] === false);
                         return (
                           <>
                             <div className="stats-stack">
@@ -862,6 +951,10 @@ export default function App() {
         />
       </section>
 
+      <section className={`screen ${tab === 'accounts' ? '' : 'hidden'}`} aria-label="Accounts">
+        <AccountsPage papers={papers} feed={feed} onCreate={createPaper} onSelect={selectPaper} onDelete={deletePaper} onRename={renamePaper} onReset={resetPaper} onOpenPaper={() => openPaper('demo')} />
+      </section>
+
       <section className={`screen ${tab === 'settings' ? '' : 'hidden'}`} aria-label="Settings">
         <Settings
           settings={settings}
@@ -876,6 +969,8 @@ export default function App() {
         />
       </section>
 
+      </div>
+
       <Toasts
         items={toasts}
         onClose={(id) => setToasts((l) => l.filter((x) => x.id !== id))}
@@ -885,7 +980,7 @@ export default function App() {
           else goTab('strategy');
         }}
       />
-      <BottomNav tab={tab} onTab={goTab} badge={Object.keys(scanner.signals).length} />
+      <BottomNav tab={tab} onTab={goTab} badge={Object.keys(scanner.signals).length} collapsed={navCol} onToggle={() => setNavCol((c) => !c)} />
 
       {report && (() => {
         const d = strategyById(report);
@@ -903,7 +998,7 @@ export default function App() {
             onCfg={(patch) => patchCfg(report, patch)}
             onOpenInputs={() => setChartStratId(report)}
             onOpenDemo={() => {
-              setDemoPreset({ strategyId: report, symbol });
+              setDemoPreset({ strategyId: report, symbol, tab: 'backtest' });
               setDemoOpen(true);
             }}
             onBack={() => setReport(null)}
@@ -941,7 +1036,7 @@ export default function App() {
           />
         );
       })()}
-      {demoOpen && <DemoPage onClose={() => setDemoOpen(false)} symbols={symbols} appliedList={liveApplied} paramsOf={paramsOf} cfgOf={cfgOf} paper={paper} setPaper={setPaper} feed={feed} onTakeSignals={takeSignals} preset={demoPreset} />}
+      {demoOpen && <DemoPage onClose={() => setDemoOpen(false)} symbols={symbols} appliedList={liveApplied} paramsOf={paramsOf} cfgOf={cfgOf} paper={paper} setPaper={setPaper} feed={feed} onTakeSignals={takeSignals} preset={demoPreset} papers={papers} onSelect={selectPaper} onCreate={createPaper} />}
       {stratSheet && <StrategySheet symbol={symbol} appliedList={liveApplied} onAdd={(id) => addStrategyToSymbol(id, symbol)} onClose={() => setStratSheet(false)} />}
       {indOpen && <IndicatorModal indicators={indicators} onChange={setIndicators} onClose={() => setIndOpen(false)} />}
     </div>
