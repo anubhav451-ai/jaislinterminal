@@ -143,12 +143,6 @@ export default function Dashboard({ symbols, feed, status, health, signals, hist
           <button className={`chip setup-chip ${setupCount ? 'on' : ''}`} onClick={() => setSetupsOpen(true)} title="Open setups: filter by strategy and time">
             <Icon d={ICONS.bell} size={14} /> Setups ({setupCount})
           </button>
-          <button className="chip" onClick={() => onOpenDemo('backtest')} title="Back-test a strategy with money">
-            Back-test
-          </button>
-          <button className="chip" onClick={() => onOpenDemo('demo')} title="Practise with a paper (virtual money) account">
-            Paper trading
-          </button>
         </div>
         <div className="breadth" title="Advancing / declining stocks">
           <span className="up">▲ {up}</span>

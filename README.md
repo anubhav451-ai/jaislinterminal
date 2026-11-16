@@ -144,3 +144,9 @@ No environment variable is needed. The app detects `*.workers.dev`, `*.pages.dev
 - **Back-test** and **Paper trading** buttons added in the chart top bar (next to Strategy / Volume) and on the Dashboard.
 - Strategy label on the chart (e.g. "Bollinger Band Close · 95 setups") → 3-dot menu now has **Hide strategy / Show strategy on chart**.
 - Fixed: the "Run back-test" button was hidden behind the navigation bar (pages now sit above it, with bottom padding and a sticky button).
+
+## v36 changes
+- Chart: BUY / SELL buttons next to the stock name open a paper order ticket (quantity, leverage - default 0 = none). Live profit/loss line on the chart; drag the SL / TP buttons off the entry line to set stop-loss / target; Close button.
+- Accounts screen: only paper accounts, balance, new account (name + balance), add balance, withdraw.
+- Paper trading screen: account, Auto trade (pick strategies, % of balance per trade), open positions, closed trades.
+- Back-test / Paper trading buttons are on the chart top bar, left of Volume (removed from Dashboard).

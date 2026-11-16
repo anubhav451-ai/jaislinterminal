@@ -7,6 +7,7 @@ import { IST, bucketStart, isIntraday, fmtTime, fmtNum, fmtVol } from '../lib/ti
 import { TOOL_SPECS, drawOne, geometry, hitTest, hexToRgba, measureInfo } from '../lib/drawings.js';
 import { drawPositions } from '../lib/positionBox.js';
 import DrawProps from './DrawProps.jsx';
+import TradeLayer, { OrderTicket } from './TradeLayer.jsx';
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
 const THEMES = {
@@ -111,7 +112,9 @@ export default function Chart({
   statsOn,
   onToggleStats,
   onOpenIndicators,
+  trade,
 }) {
+  const [ticket, setTicket] = useState(null); // 'buy' | 'sell' | null: the order ticket
   const stackEl = useRef(null);
   const wrapEl = useRef(null);
   const mainEl = useRef(null);
@@ -900,6 +903,16 @@ export default function Chart({
           <div className="lg-row">
             <b>{symbol}</b>
             <span className="muted">{intervalLabel}</span>
+            {trade && (
+              <span className="lg-trade">
+                <button className="lg-buy" onClick={() => setTicket('buy')} title="Paper BUY">
+                  BUY
+                </button>
+                <button className="lg-sell" onClick={() => setTicket('sell')} title="Paper SELL">
+                  SELL
+                </button>
+              </span>
+            )}
             {c && (
               <>
                 <span className="muted">O</span>
@@ -970,6 +983,22 @@ export default function Chart({
         </div>
         {overlay}
         <div ref={mainEl} className="main-chart" />
+        {trade && <TradeLayer seriesRef={seriesRef} wrapRef={wrapEl} symbol={symbol} feed={feed} positions={trade.positions} onSetLevels={trade.onSetLevels} onClose={trade.onClosePosition} interval={interval} />}
+        {trade && ticket && (
+          <OrderTicket
+            side={ticket}
+            setSide={setTicket}
+            symbol={symbol}
+            price={feed.quotes[symbol]?.p ?? null}
+            account={trade.account}
+            onOrder={trade.onOrder}
+            onClose={() => setTicket(null)}
+            onOpenAccounts={() => {
+              setTicket(null);
+              trade.onOpenAccounts();
+            }}
+          />
+        )}
         <canvas ref={canvasEl} className={`draw-layer ${tool !== 'cursor' ? 'active' : ''}`} onPointerDown={onCanvasDown} onPointerMove={onCanvasMove} onPointerUp={onCanvasUp} onPointerCancel={onCanvasUp} />
         <button className="go-latest" onClick={goLatest} title="Jump to latest candle" aria-label="Jump to latest candle">
           ⏭

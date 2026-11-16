@@ -137,39 +137,46 @@ export const newAccount = (capital = 100000, { name = 'Paper account', charges =
 
 const dirOf = (side) => (side === 'buy' ? 1 : -1);
 export const unrealized = (p, price) => (price == null ? 0 : dirOf(p.side) * (price - p.entry) * p.qty);
-export const equityOf = (acc, priceOf) => acc.cash + acc.positions.reduce((a, p) => a + p.qty * p.entry + unrealized(p, priceOf(p.symbol)), 0);
-export const investedOf = (acc) => acc.positions.reduce((a, p) => a + p.qty * p.entry, 0);
+const marginOf = (p) => (p.margin != null ? p.margin : p.qty * p.entry); // money locked for the position (leverage 1 = full price)
+export const equityOf = (acc, priceOf) => acc.cash + acc.positions.reduce((a, p) => a + marginOf(p) + unrealized(p, priceOf(p.symbol)), 0);
+export const investedOf = (acc) => acc.positions.reduce((a, p) => a + marginOf(p), 0);
 
 let seq = 0;
 const newId = () => `p${Date.now().toString(36)}${(seq++).toString(36)}`;
 
-// returns { acc, error }
-export function openPosition(acc, { symbol, side, price, amount, qty, stop = null, target = null, strategyId = null, source = 'manual', signalKey = null }) {
+// returns { acc, error }.  lev: leverage (0 or 1 = none). With leverage L only 1/L of the price is locked as margin.
+export function openPosition(acc, { symbol, side, price, amount, qty, lev = 0, stop = null, target = null, strategyId = null, source = 'manual', signalKey = null }) {
   if (!(price > 0)) return { acc, error: 'No price available for this stock yet.' };
-  const q = qty != null ? Math.floor(qty) : Math.floor(Math.min(amount, acc.cash / (1 + (acc.charges || 0) / 100)) / price);
-  if (!(q >= 1)) return { acc, error: acc.cash < price ? 'Not enough cash in the demo account.' : 'Amount is too small for even one share.' };
+  const L = Math.max(1, Number(lev) || 1);
+  const ch = (acc.charges || 0) / 100;
+  const q = qty != null ? Math.floor(qty) : Math.floor((Math.min(amount, (acc.cash * L) / (1 + ch)) ) / price);
+  if (!(q >= 1)) return { acc, error: acc.cash < price / L ? 'Not enough balance in the paper account.' : 'Quantity is too small for even one share.' };
   const cost = q * price;
-  const fee = (cost * (acc.charges || 0)) / 100;
-  if (cost + fee > acc.cash + 1e-6) return { acc, error: 'Not enough cash in the demo account.' };
-  const pos = { id: newId(), symbol, side, qty: q, entry: price, stop, target, strategyId, source, openedAt: Date.now(), signalKey };
-  return { acc: { ...acc, cash: acc.cash - cost - fee, positions: [...acc.positions, pos] }, error: null };
+  const margin = cost / L;
+  const fee = cost * ch;
+  if (margin + fee > acc.cash + 1e-6) return { acc, error: `Not enough balance. Needed ₹${Math.ceil(margin + fee).toLocaleString('en-IN')}, available ₹${Math.floor(acc.cash).toLocaleString('en-IN')}.` };
+  const pos = { id: newId(), symbol, side, qty: q, entry: price, lev: L > 1 ? L : 0, margin, stop, target, strategyId, source, openedAt: Date.now(), signalKey };
+  return { acc: { ...acc, cash: acc.cash - margin - fee, positions: [...acc.positions, pos] }, error: null };
 }
 
 export function closePosition(acc, id, price, reason) {
   const p = acc.positions.find((x) => x.id === id);
   if (!p || !(price > 0)) return acc;
-  const gross = p.qty * p.entry + dirOf(p.side) * (price - p.entry) * p.qty;
-  const fees = ((p.qty * p.entry + p.qty * price) * (acc.charges || 0)) / 100;
-  const pnl = gross - p.qty * p.entry - fees;
+  const margin = marginOf(p);
+  const gross = Math.max(-margin, dirOf(p.side) * (price - p.entry) * p.qty); // with leverage you cannot lose more than the margin
+  const ch = (acc.charges || 0) / 100;
+  const entryFee = p.qty * p.entry * ch; // already paid when the trade was opened
+  const exitFee = p.qty * price * ch;
+  const pnl = gross - entryFee - exitFee;
   return {
     ...acc,
-    cash: acc.cash + gross - (p.qty * price * (acc.charges || 0)) / 100,
+    cash: acc.cash + margin + gross - exitFee,
     positions: acc.positions.filter((x) => x.id !== id),
-    closed: [{ ...p, exit: price, closedAt: Date.now(), reason, pnl, retPct: (pnl / (p.qty * p.entry)) * 100 }, ...acc.closed].slice(0, 500),
+    closed: [{ ...p, exit: price, closedAt: Date.now(), reason, pnl, retPct: (pnl / margin) * 100 }, ...acc.closed].slice(0, 500),
   };
 }
 
-// closes positions whose stop-loss or target was touched by the latest price
+// closes positions whose stop-loss or target was touched by the latest price (or that lost their whole margin)
 export function checkExits(acc, priceOf) {
   let next = acc;
   for (const p of acc.positions) {
@@ -178,10 +185,23 @@ export function checkExits(acc, priceOf) {
     const long = p.side === 'buy';
     const stopHit = p.stop != null && (long ? px <= p.stop : px >= p.stop);
     const tpHit = p.target != null && (long ? px >= p.target : px <= p.target);
+    const liquidated = p.lev > 1 && unrealized(p, px) <= -marginOf(p) * 0.98;
     if (stopHit) next = closePosition(next, p.id, p.stop, 'stop-loss');
     else if (tpHit) next = closePosition(next, p.id, p.target, 'target');
+    else if (liquidated) next = closePosition(next, p.id, px, 'liquidated (margin used up)');
   }
   return next;
+}
+
+// money in / out of a paper account (starting balance moves with it, so profit/loss stays correct)
+export function addFunds(acc, amount) {
+  if (!(amount > 0)) return { acc, error: 'Enter an amount greater than 0.' };
+  return { acc: { ...acc, cash: acc.cash + amount, capital: acc.capital + amount }, error: null };
+}
+export function withdrawFunds(acc, amount) {
+  if (!(amount > 0)) return { acc, error: 'Enter an amount greater than 0.' };
+  if (amount > acc.cash + 1e-6) return { acc, error: `You can withdraw at most ₹${Math.floor(acc.cash).toLocaleString('en-IN')} (free cash, not money locked in trades).` };
+  return { acc: { ...acc, cash: acc.cash - amount, capital: Math.max(1, acc.capital - amount) }, error: null };
 }
 
 // opens demo positions for the strategy setups that appeared (only for strategies with auto demo-trading switched on)

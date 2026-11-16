@@ -5,7 +5,7 @@ import { getCandles } from '../lib/useScanner.js';
 import { cfgLabel, dateStr } from '../lib/backtest.js';
 import { nowIST } from '../lib/delay.js';
 import { OpenAccountForm } from './AccountsPage.jsx';
-import { closePosition, daysAgo, equityOf, investedOf, money, newAccount, openPosition, PERIODS, runPortfolioBacktest, unrealized } from '../lib/paper.js';
+import { closePosition, daysAgo, equityOf, investedOf, money, PERIODS, runPortfolioBacktest, unrealized } from '../lib/paper.js';
 
 const num = (v, d) => (Number.isFinite(Number(v)) && String(v).trim() !== '' ? Number(v) : d);
 const pctText = (n) => (n == null || !Number.isFinite(n) ? '–' : `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`);
@@ -295,6 +295,7 @@ function BacktestTab({ symbols, appliedList, paramsOf, cfgOf, preset }) {
 
 function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals, papers, onSelect, onCreate }) {
   const [adding, setAdding] = useState(false);
+  const allStrats = useMemo(() => allStrategies().filter((x) => !x.error), []);
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((x) => x + 1), 3000);
@@ -307,27 +308,8 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals, p
   const realized = paper.closed.reduce((a, c) => a + c.pnl, 0);
   const total = equity - paper.capital;
 
-  // manual order
-  const [sym, setSym] = useState(symbols[0]?.symbol || '');
-  const [side, setSide] = useState('buy');
-  const [amount, setAmount] = useState(String(Math.round(paper.capital / 10)));
-  const [sl, setSl] = useState('0.5');
-  const [tp, setTp] = useState('1');
-  const [msg, setMsg] = useState('');
-  const [newCap, setNewCap] = useState(String(paper.capital));
-  useEffect(() => setNewCap(String(paper.capital)), [paper.id]); // eslint-disable-line
   const nameOf = (s) => symbols.find((x) => x.symbol === s)?.name || '';
 
-  const place = () => {
-    const px = priceOf(sym);
-    const dir = side === 'buy' ? 1 : -1;
-    const slV = num(sl, 0);
-    const tpV = num(tp, 0);
-    const r = openPosition(paper, { symbol: sym, side, price: px, amount: num(amount, 0), stop: slV > 0 && px ? px * (1 - (dir * slV) / 100) : null, target: tpV > 0 && px ? px * (1 + (dir * tpV) / 100) : null });
-    if (r.error) return setMsg(r.error);
-    setPaper(r.acc);
-    setMsg(`Paper ${side === 'buy' ? 'BUY' : 'SELL'} placed: ${sym} at ${px.toFixed(2)}.`);
-  };
   const setAuto = (id, patch) =>
     setPaper((acc) => {
       const cur = acc.auto[id] || { on: false, pct: 10, since: 0 };
@@ -359,7 +341,7 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals, p
             <select value={papers.active || ''} onChange={(e) => onSelect(e.target.value)}>
               {papers.accounts.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name} · {money(a.capital)}
+                  {a.name}
                 </option>
               ))}
             </select>
@@ -388,23 +370,24 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals, p
         </section>
 
         <section className="card">
-          <h2>Auto paper-trading</h2>
-          <p className="muted small">Switch a strategy on and its new BUY / SELL setups are traded automatically in the paper account with the strategy's stop-loss and target. Keep the app open so prices are watched.</p>
-          {appliedList.length === 0 && <p className="muted small">No strategy is added to any stock yet. Add one from the chart ("+ Strategy").</p>}
-          {appliedList.map((a) => {
-            const d = strategyById(a.strategyId);
-            const au = paper.auto[a.strategyId] || { on: false, pct: 10 };
+          <h2>Auto trade</h2>
+          <p className="muted small">Switch a strategy on: every new BUY / SELL setup of that strategy is traded automatically with this account's balance, using the strategy's stop-loss and target. Keep the app open so prices are watched.</p>
+          {allStrats.length === 0 && <p className="muted small">No strategy found.</p>}
+          {allStrats.map((d) => {
+            const au = paper.auto[d.id] || { on: false, pct: 10 };
+            const a = appliedList.find((x) => x.strategyId === d.id);
             return (
-              <div key={a.strategyId} className={`dm-auto ${au.on ? 'on' : ''}`}>
+              <div key={d.id} className={`dm-auto ${au.on ? 'on' : ''}`}>
                 <label className="cd-on">
-                  <input type="checkbox" checked={!!au.on} onChange={(e) => setAuto(a.strategyId, { on: e.target.checked })} />
-                  <b>{d?.name || 'Strategy'}</b>
-                  <small className="muted"> · {a.symbols.length} stocks</small>
+                  <input type="checkbox" checked={!!au.on} onChange={(e) => setAuto(d.id, { on: e.target.checked })} />
+                  <b>{d.name}</b>
+                  <small className="muted"> · {a ? `${a.symbols.length} stocks` : 'no stocks added yet'}</small>
                 </label>
                 <label className="dm-pct">
-                  <span>% of account per trade</span>
-                  <input type="number" inputMode="decimal" min="1" max="100" value={au.pct ?? 10} onChange={(e) => setAuto(a.strategyId, { pct: num(e.target.value, 10) })} />
+                  <span>% of balance per trade</span>
+                  <input type="number" inputMode="decimal" min="1" max="100" value={au.pct ?? 10} onChange={(e) => setAuto(d.id, { pct: num(e.target.value, 10) })} />
                 </label>
+                {au.on && !a && <small className="muted dm-wide">Add this strategy to some stocks (chart → + Strategy) so it has setups to trade.</small>}
               </div>
             );
           })}
@@ -413,49 +396,6 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals, p
               Also take the setups that are active right now
             </button>
           )}
-        </section>
-
-        <section className="card">
-          <h2>Place a paper order</h2>
-          <div className="dm-fields">
-            <label className="cd-f dm-wide">
-              <span>Stock</span>
-              <select value={sym} onChange={(e) => setSym(e.target.value)}>
-                {symbols.map((s) => (
-                  <option key={s.symbol} value={s.symbol}>
-                    {s.symbol} · {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="dm-side dm-wide" role="group" aria-label="Buy or sell">
-              <button className={side === 'buy' ? 'on buy' : ''} onClick={() => setSide('buy')}>
-                BUY
-              </button>
-              <button className={side === 'sell' ? 'on sell' : ''} onClick={() => setSide('sell')}>
-                SELL
-              </button>
-            </div>
-            <label className="cd-f">
-              <span>Amount (₹)</span>
-              <input type="number" inputMode="decimal" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} />
-            </label>
-            <label className="cd-f">
-              <span>Stop-loss % (0 = none)</span>
-              <input type="number" inputMode="decimal" min="0" step="0.1" value={sl} onChange={(e) => setSl(e.target.value)} />
-            </label>
-            <label className="cd-f">
-              <span>Target % (0 = none)</span>
-              <input type="number" inputMode="decimal" min="0" step="0.1" value={tp} onChange={(e) => setTp(e.target.value)} />
-            </label>
-          </div>
-          <p className="muted small">
-            Price now: <b>{priceOf(sym) ? priceOf(sym).toFixed(2) : 'waiting for price…'}</b>
-          </p>
-          {msg && <p className="muted small">{msg}</p>}
-          <button className={`btn wide dm-place ${side}`} onClick={place}>
-            Place paper {side === 'buy' ? 'BUY' : 'SELL'}
-          </button>
         </section>
       </div>
 
@@ -513,23 +453,6 @@ function DemoTab({ symbols, appliedList, paper, setPaper, feed, onTakeSignals, p
           </div>
         </section>
 
-        <section className="card">
-          <h2>Reset this account</h2>
-          <div className="dm-fields">
-            <label className="cd-f">
-              <span>New starting balance (₹)</span>
-              <input type="number" inputMode="decimal" min="1" value={newCap} onChange={(e) => setNewCap(e.target.value)} />
-            </label>
-          </div>
-          <button
-            className="btn wide"
-            onClick={() => {
-              if (window.confirm('Reset this paper account? All its positions and history are cleared.')) setPaper((acc) => ({ ...newAccount(num(newCap, 100000), { name: acc.name, charges: acc.charges }), id: acc.id, createdAt: acc.createdAt, auto: Object.fromEntries(Object.entries(acc.auto).map(([k, v]) => [k, { ...v, since: nowIST() }])) }));
-            }}
-          >
-            Reset paper account
-          </button>
-        </section>
       </div>
     </div>
   );

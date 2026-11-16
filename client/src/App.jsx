@@ -15,7 +15,7 @@ import { INTERVALS, fmtNum, TF_LONG } from './lib/time.js';
 import { nowIST, setDataDelay } from './lib/delay.js';
 import { backtest, normCfg } from './lib/backtest.js';
 import DemoPage from './components/DemoPage.jsx';
-import { applySignals, checkExits, newAccount } from './lib/paper.js';
+import { addFunds, applySignals, checkExits, closePosition, newAccount, openPosition, withdrawFunds } from './lib/paper.js';
 import { PALETTE, defaultParams } from './lib/registry.js';
 import { TOOL_SPECS } from './lib/drawings.js';
 import { changeOf } from './lib/hooks.js';
@@ -565,6 +565,39 @@ export default function App() {
     },
     [pushToast]
   );
+  // order from the chart: { symbol, side, qty, lev } -> error text or null
+  const placeOrder = useCallback(
+    ({ symbol: sym, side, qty, lev }) => {
+      if (!paper) return 'Open a paper account first.';
+      const price = feed.quotes[sym]?.p;
+      const r = openPosition(paper, { symbol: sym, side, price, qty, lev });
+      if (r.error) return r.error;
+      setPaper(() => r.acc);
+      pushToast({ kind: 'ok', title: `Paper ${side === 'buy' ? 'BUY' : 'SELL'} placed`, text: `${qty} × ${sym} at ${price.toFixed(2)}` });
+      return null;
+    },
+    [paper, feed, setPaper, pushToast]
+  );
+  const setLevels = useCallback((id, lv) => setPaper((acc) => ({ ...acc, positions: acc.positions.map((p) => (p.id === id ? { ...p, ...lv } : p)) })), [setPaper]);
+  const closePos = useCallback(
+    (id) => {
+      const p = paper?.positions.find((x) => x.id === id);
+      const price = p && feed.quotes[p.symbol]?.p;
+      if (price) setPaper((acc) => closePosition(acc, id, price, 'closed by you'));
+    },
+    [paper, feed, setPaper]
+  );
+  const fundsPaper = useCallback(
+    (id, kind, amount) => {
+      const a = papers.accounts.find((x) => x.id === id);
+      if (!a) return 'Account not found.';
+      const r = kind === 'add' ? addFunds(a, amount) : withdrawFunds(a, amount);
+      if (r.error) return r.error;
+      setPapers((P) => ({ ...P, accounts: P.accounts.map((x) => (x.id === id ? r.acc : x)) }));
+      return null;
+    },
+    [papers]
+  );
   const selectPaper = useCallback((id) => setPapers((P) => (P.accounts.some((a) => a.id === id) ? { ...P, active: id } : P)), []);
   const deletePaper = useCallback((id) => setPapers((P) => { const accounts = P.accounts.filter((a) => a.id !== id); return { accounts, active: P.active === id ? accounts[0]?.id || null : P.active }; }), []);
   const renamePaper = useCallback((id, name) => setPapers((P) => ({ ...P, accounts: P.accounts.map((a) => (a.id === id ? { ...a, name } : a)) })), []);
@@ -748,15 +781,14 @@ export default function App() {
             <button className="btn" onClick={() => setStratSheet(true)}>
               + Strategy{stratMatch.length ? ` (${stratMatch.length})` : ''}
             </button>
-            <button className={`btn ${settings.showVolume ? 'on' : ''}`} onClick={() => patchSettings({ showVolume: !settings.showVolume })}>
-              Volume
-            </button>
-            <span className="sep" />
             <button className="btn" onClick={() => openPaper('backtest')} title="Back-test a strategy with money">
               Back-test
             </button>
-            <button className="btn" onClick={() => openPaper('demo')} title="Practise with a paper (virtual money) account">
+            <button className="btn" onClick={() => openPaper('demo')} title="Paper trading (virtual money)">
               Paper trading
+            </button>
+            <button className={`btn ${settings.showVolume ? 'on' : ''}`} onClick={() => patchSettings({ showVolume: !settings.showVolume })}>
+              Volume
             </button>
           </header>
 
@@ -885,6 +917,7 @@ export default function App() {
                 hideDrawings={hideDrawings}
                 markers={markers}
                 positions={positions}
+                trade={{ account: paper, positions: (paper?.positions || []).filter((p) => p.symbol === symbol), onOrder: placeOrder, onSetLevels: setLevels, onClosePosition: closePos, onOpenAccounts: () => goTab('accounts') }}
                 onRemoveIndicator={removeInd}
                 onOpenIndicators={() => setIndOpen(true)}
               />
@@ -952,7 +985,7 @@ export default function App() {
       </section>
 
       <section className={`screen ${tab === 'accounts' ? '' : 'hidden'}`} aria-label="Accounts">
-        <AccountsPage papers={papers} feed={feed} onCreate={createPaper} onSelect={selectPaper} onDelete={deletePaper} onRename={renamePaper} onReset={resetPaper} onOpenPaper={() => openPaper('demo')} />
+        <AccountsPage papers={papers} feed={feed} onCreate={createPaper} onSelect={selectPaper} onDelete={deletePaper} onFunds={fundsPaper} />
       </section>
 
       <section className={`screen ${tab === 'settings' ? '' : 'hidden'}`} aria-label="Settings">
