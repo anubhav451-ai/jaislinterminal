@@ -1,6 +1,6 @@
 {
   // Cloudflare (Workers with static assets). The name must be the same as the Worker name in the Cloudflare dashboard.
-  "name": "jaislin-terminal",
+  "name": "jaislinterminal",
   "main": "worker/index.js",
   "compatibility_date": "2025-01-01",
   "assets": {

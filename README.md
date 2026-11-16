@@ -121,7 +121,7 @@ The repository root must contain `client/`, `server/`, `worker/`, `functions/`, 
 - Root directory: empty
 - Build command: `npm run build`
 - Deploy command: `npx wrangler deploy`
-- The `name` in `wrangler.jsonc` must be the same as the Worker name in the Cloudflare dashboard (change that one line if yours differs).
+- The `name` in `wrangler.jsonc` (now `jaislinterminal`) must be the same as the Worker name in the Cloudflare dashboard (change that one line if yours differs).
 - `/api/*` is answered by `worker/index.js` (Yahoo Finance, 15 min delayed).
 
 **Cloudflare Pages (Git import):**
